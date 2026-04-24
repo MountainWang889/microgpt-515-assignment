@@ -81,6 +81,7 @@ class Value:
 # Initialize the parameters, to store the knowledge of the model
 n_layer = 1     # depth of the transformer neural network (number of layers)
 n_embd = 16     # width of the network (embedding dimension)
+n_experts = 2
 block_size = 16 # maximum context length of the attention window (note: the longest name is 15 characters)
 n_head = 4      # number of attention heads
 head_dim = n_embd // n_head # derived dimension of each head
@@ -98,8 +99,11 @@ for i in range(n_layer):
     state_dict[f'layer{i}.attn_wv_lora_A'] = matrix(lora_rank, n_embd)
     state_dict[f'layer{i}.attn_wv_lora_B'] = matrix(n_embd, lora_rank)
 
-    state_dict[f'layer{i}.mlp_fc1'] = matrix(4 * n_embd, n_embd)
-    state_dict[f'layer{i}.mlp_fc2'] = matrix(n_embd, 4 * n_embd)
+    state_dict[f'layer{i}.gate'] = matrix(n_experts, n_embd)
+
+    for e in range(n_experts):
+        state_dict[f'layer{i}.expert{e}_fc1'] = matrix(4 * n_embd, n_embd)
+        state_dict[f'layer{i}.expert{e}_fc2'] = matrix(n_embd, 4 * n_embd)
 params = [p for mat in state_dict.values() for row in mat for p in row] # flatten params into a single list[Value]
 print(f"num params: {len(params)}")
 
