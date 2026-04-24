@@ -86,11 +86,18 @@ n_head = 4      # number of attention heads
 head_dim = n_embd // n_head # derived dimension of each head
 matrix = lambda nout, nin, std=0.08: [[Value(random.gauss(0, std)) for _ in range(nin)] for _ in range(nout)]
 state_dict = {'wte': matrix(vocab_size, n_embd), 'wpe': matrix(block_size, n_embd), 'lm_head': matrix(vocab_size, n_embd)}
+lora_rank = 2
 for i in range(n_layer):
     state_dict[f'layer{i}.attn_wq'] = matrix(n_embd, n_embd)
     state_dict[f'layer{i}.attn_wk'] = matrix(n_embd, n_embd)
     state_dict[f'layer{i}.attn_wv'] = matrix(n_embd, n_embd)
     state_dict[f'layer{i}.attn_wo'] = matrix(n_embd, n_embd)
+
+    state_dict[f'layer{i}.attn_wq_lora_A'] = matrix(lora_rank, n_embd)
+    state_dict[f'layer{i}.attn_wq_lora_B'] = matrix(n_embd, lora_rank)
+    state_dict[f'layer{i}.attn_wv_lora_A'] = matrix(lora_rank, n_embd)
+    state_dict[f'layer{i}.attn_wv_lora_B'] = matrix(n_embd, lora_rank)
+
     state_dict[f'layer{i}.mlp_fc1'] = matrix(4 * n_embd, n_embd)
     state_dict[f'layer{i}.mlp_fc2'] = matrix(n_embd, 4 * n_embd)
 params = [p for mat in state_dict.values() for row in mat for p in row] # flatten params into a single list[Value]
@@ -100,7 +107,12 @@ print(f"num params: {len(params)}")
 # Follow GPT-2, blessed among the GPTs, with minor differences: layernorm -> rmsnorm, no biases, GeLU -> ReLU
 def linear(x, w):
     return [sum(wi * xi for wi, xi in zip(wo, x)) for wo in w]
-
+def lora_linear(x, W, A, B, alpha=4):
+    r = len(A)
+    base = linear(x, W)
+    low_rank = linear(linear(x, A), B)
+    scale = alpha / r
+    return [b + scale * l for b, l in zip(base, low_rank)]
 def softmax(logits):
     max_val = max(val.data for val in logits)
     exps = [(val - max_val).exp() for val in logits]
@@ -122,9 +134,21 @@ def gpt(token_id, pos_id, keys, values):
         # 1) Multi-head Attention block
         x_residual = x
         x = rmsnorm(x)
-        q = linear(x, state_dict[f'layer{li}.attn_wq'])
+        q = lora_linear(
+            x,
+            state_dict[f'layer{li}.attn_wq'],
+            state_dict[f'layer{li}.attn_wq_lora_A'],
+            state_dict[f'layer{li}.attn_wq_lora_B']
+        )
+
         k = linear(x, state_dict[f'layer{li}.attn_wk'])
-        v = linear(x, state_dict[f'layer{li}.attn_wv'])
+
+        v = lora_linear(
+            x,
+            state_dict[f'layer{li}.attn_wv'],
+            state_dict[f'layer{li}.attn_wv_lora_A'],
+            state_dict[f'layer{li}.attn_wv_lora_B']
+        )
         keys[li].append(k)
         values[li].append(v)
         x_attn = []
