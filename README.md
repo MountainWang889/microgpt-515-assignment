@@ -66,6 +66,8 @@ x = expertexpert_id
 
 ### Insight
 MoE enables scaling model capacity without proportionally increasing computation, as only a subset of experts is activated.
+
+---
 ---
 
 ## Results
