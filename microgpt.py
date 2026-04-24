@@ -113,6 +113,20 @@ def lora_linear(x, W, A, B, alpha=4):
     low_rank = linear(linear(x, A), B)
     scale = alpha / r
     return [b + scale * l for b, l in zip(base, low_rank)]
+def apply_rope(x, pos):
+    import math
+    out = []
+    for i in range(0, len(x), 2):
+        theta = pos / (10000 ** (i / len(x)))
+        cos_t = math.cos(theta)
+        sin_t = math.sin(theta)
+
+        x1 = x[i]
+        x2 = x[i+1]
+
+        out.append(x1 * cos_t - x2 * sin_t)
+        out.append(x1 * sin_t + x2 * cos_t)
+    return out
 def softmax(logits):
     max_val = max(val.data for val in logits)
     exps = [(val - max_val).exp() for val in logits]
@@ -134,15 +148,15 @@ def gpt(token_id, pos_id, keys, values):
         # 1) Multi-head Attention block
         x_residual = x
         x = rmsnorm(x)
-        q = lora_linear(
-            x,
+        q = lora_linear(x,
             state_dict[f'layer{li}.attn_wq'],
             state_dict[f'layer{li}.attn_wq_lora_A'],
             state_dict[f'layer{li}.attn_wq_lora_B']
         )
 
         k = linear(x, state_dict[f'layer{li}.attn_wk'])
-
+        q = apply_rope(q, pos_id)
+        k = apply_rope(k, pos_id)
         v = lora_linear(
             x,
             state_dict[f'layer{li}.attn_wv'],
